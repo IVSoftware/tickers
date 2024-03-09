@@ -1,84 +1,94 @@
 ## Tickers
 
-There are many ways to go about it. This one uses `System.Linq`. 
-
-___
-
-For demonstration purposes, make a mock list of 1000 timestamped symbol price "ticks" from the past four hours with a pseudorandom distribution of 8 tickers.
+Fildor's comment is spot on. To ensure that the data structure doesn't become too enormous, use a `Queue<TickerModel>` with a capacity of "fifteeen" (per your spec) and make dictionary of queues by ticker symbol to retrueve the price queue for a given symbol.
 
 ```
-Random _rando = new Random(1);
-string[] Ticker = { "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", };
-
-List<TickerModel> giantList =
-    Enumerable.Range(1, 1000)
-    .Select(_ => new TickerModel
+class ThrottledTickDict
+{
+    private Dictionary<string, Queue<TickerModel>> _data = new Dictionary<string, Queue<TickerModel>>();
+    public TickerModel[] this[string key] => 
+        _data.TryGetValue(key, out var symbolQueue) ?
+        symbolQueue.ToArray() :
+        new TickerModel[0];
+    public void Add(TickerModel model)
     {
-        Ticker = Ticker[_rando.Next(8)],
-        Timestamp = DateTime.Now.AddMinutes(-_rando.Next(240)),
-    }).ToList();
+        if(!_data.ContainsKey(model.Ticker))
+        {
+            _data[model.Ticker] = new Queue<TickerModel>(capacity: 15);
+        }
+        _data[model.Ticker].Enqueue(model);
+    }
+}
+```
 
-[DebuggerDisplay("{Ticker}@{Timestamp}")]
+Where:
+```
 class TickerModel
 {
     public string Ticker { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
-    // Presumably we are tracking something like price
-    // fluctuations, but that's not important right now.
-    // decimal Price {get; set; }
+    public string? Price { get; set; }
+    public override string ToString() => $"{Ticker} [{Timestamp}] {Price}";
 }
 ```
-
 ___
 
- 1. Use `Linq.GroupBy` to make separate lists where all the tickers are the same.
- 2. Use `Linq.ToDictionary` so that you can reference these lists by their ticker symbol.
- 3. Use `Linq.OrderByDescending` to move the most recent timestamps to the top of the list.
+**Simulation**
 
-
+###### Console code
 ```
-Dictionary<string, List<TickerModel>> dict =
-    giantList
-    .GroupBy(_ => _.Ticker)
-    .ToDictionary(
-        _ => _.Key, 
-        _ => _.OrderByDescending(_ => _.Timestamp).ToList());
-```
+var limitedData = new ThrottledTickDict();
 
-Here, in the debugger view, is what we've got so far:
-
-[![dictionary][1]][1]
-
-___
-
- 4. Use `Linq.Where` to identify the groups that have more than 15 items.
-
-```
-string[] groupsToTruncate =
-    dict
-    .Where(_ => _.Value.Count > 15)
-    .Select(kvp => kvp.Key)
-    .ToArray();
-```
-
-___
-
- 5. Use `Linq.Take` to keep a maximum of "fifteen" items.
-
-```
-foreach (var groupKey in groupsToTruncate)
+// Simulate a subscribed ticker stream.
+new MockTickerGenerator().TickerChanged += (sender, e) =>
 {
-    dict[groupKey] = dict[groupKey].Take(15).ToList();
+    if(sender is MockTickerGenerator quoteStream)
+    {
+        limitedData.Add(e);
+        Console.WriteLine();
+        Console.WriteLine($"{e.Ticker} - {limitedData[e.Ticker].Length} quotes)");
+        Console.WriteLine(string.Join(Environment.NewLine, limitedData[e.Ticker].Select(_ => _)));
+    }
+};
+Console.ReadKey();
+```
+
+Where:
+ 
+```
+class MockTickerGenerator
+{
+    Random _rando = new Random(1);
+    private Dictionary<string, double> _lastPrice = new Dictionary<string, double>();
+    public MockTickerGenerator() => _ = GenerateRandomTickStream();
+    List<string> Symbols { get; } =
+        new List<string> { "AAA", "BBBB", "CCC", "DDDD", "EEE", "FFFF", "GGG", "HHHH", };
+    private async Task GenerateRandomTickStream()
+    {
+        while (true)
+        {
+            var ticker = Symbols[_rando.Next(8)];
+            if (!_lastPrice.ContainsKey(ticker))
+            {
+                _lastPrice[ticker] = 10 + 90 * _rando.NextDouble();
+            }
+            var price = Math.Max(1.0, _lastPrice[ticker] + (0.5 - _rando.NextDouble()) * 2);
+            _lastPrice[ticker] = price;
+            TickerChanged?.Invoke(this, new TickerModel
+            {
+                Ticker = ticker,
+                Timestamp = DateTime.Now,
+                Price = $"{price:f2}",
+            });
+            await Task.Delay(TimeSpan.FromSeconds(0.5 + _rando.NextDouble()));
+        }
+    }
+    public event EventHandler<TickerModel>? TickerChanged;
 }
 ```
 
-Here's the end result:
 
-[![dictionary after processing][2]][2]
 
----
 
-_If your list gets so gigantic that you don't want to process it in memory, you could take a similar approach to ticker items stored in a local SQLite database, and be able to query and sort using `SQL` instead._
 
-  [1]: https://i.stack.imgur.com/TIn5N.png
-  [2]: https://i.stack.imgur.com/ogrSt.png
+t.png
