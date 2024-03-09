@@ -1,5 +1,7 @@
 ﻿
+using SQLite;
 using System;
+using System.Diagnostics;
 
 var limitedData = new ThrottledTickDict();
 Console.Title = "QuoteTracker";
@@ -19,6 +21,8 @@ Console.ReadKey();
 
 class TickerModel
 {
+    [PrimaryKey]
+    public string Id { get; set; } = $"{Guid.NewGuid()}";
     public string Ticker { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
     public string? Price { get; set; }
@@ -58,21 +62,21 @@ class MockTickerGenerator
 class ThrottledTickDict
 {
     const int MAX = 15;
-    private Dictionary<string, Queue<TickerModel>> _data = new Dictionary<string, Queue<TickerModel>>();
-    public TickerModel[] this[string key] => 
-        _data.TryGetValue(key, out var symbolQueue) ?
-        symbolQueue.ToArray() :
-        new TickerModel[0];
+
+    //  <PackageReference Include="sqlite-net-pcl" Version="1.8.116" />
+    SQLiteConnection Database { get; } = new SQLiteConnection(":memory:");
+    public TickerModel[] this[string key] =>
+        Database.Query<TickerModel>($"select * from {nameof(TickerModel)} where {nameof(TickerModel.Ticker)}='{key}'")
+        .ToArray();
     public void Add(TickerModel model)
     {
-        if(!_data.ContainsKey(model.Ticker))
+        var existing = this[model.Ticker];
+        for (int i = 0; i < existing.Length - MAX; i++) 
         {
-            _data[model.Ticker] = new Queue<TickerModel>();
         }
-        if(_data[model.Ticker].Count == MAX)
+        if(1 != Database.Insert(model))
         {
-            _ = _data[model.Ticker].Dequeue();
+            Debug.Fail("The operation is expected to succeed");
         }
-        _data[model.Ticker].Enqueue(model);
     }
 }
