@@ -2,6 +2,7 @@
 using SQLite;
 using System;
 using System.Diagnostics;
+using System.Reflection.Metadata.Ecma335;
 
 var limitedData = new ThrottledTickDict();
 Console.Title = "QuoteTracker";
@@ -61,18 +62,25 @@ class MockTickerGenerator
 
 class ThrottledTickDict
 {
+    public ThrottledTickDict() => Database.CreateTable<TickerModel>();
     const int MAX = 15;
 
     //  <PackageReference Include="sqlite-net-pcl" Version="1.8.116" />
     SQLiteConnection Database { get; } = new SQLiteConnection(":memory:");
     public TickerModel[] this[string key] =>
-        Database.Query<TickerModel>($"select * from {nameof(TickerModel)} where {nameof(TickerModel.Ticker)}='{key}'")
+        Database
+        .Query<TickerModel>($"select * from {nameof(TickerModel)} where {nameof(TickerModel.Ticker)}='{key}'")
+        .OrderByDescending(_=>_.Timestamp)
         .ToArray();
     public void Add(TickerModel model)
     {
         var existing = this[model.Ticker];
-        for (int i = 0; i < existing.Length - MAX; i++) 
+        for (int i = 0; i <= existing.Length - MAX; i++) 
         {
+            if(1 != Database.Delete(existing[i]))
+            {
+                Debug.Fail("The operation is expected to succeed");
+            }
         }
         if(1 != Database.Insert(model))
         {
