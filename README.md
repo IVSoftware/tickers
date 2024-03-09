@@ -1,6 +1,6 @@
 ## Tickers
 
-There are many ways to go about it. This one uses `System.Linq`. 
+If the gigantic list exists already, it can be reduced to dictionary by ticker symbol where each symbol has a maximum of 15 entries using `System.Linq`. 
 
 ___
 
